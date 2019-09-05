@@ -1,0 +1,5 @@
+.python-version
+*.ipynb
+*.lprof
+*.dat
+.ipynb_checkpoints
