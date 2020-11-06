@@ -2,45 +2,58 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import LogNorm
 import numpy as np
 from scipy import stats
+np.random.seed(42)
 
 
 class BOCD:
-    def __init__(self, dist, hazard):
+    def __init__(self, dist, hazard, threshold=0.3):
         self.dist = dist
         self.hazard = hazard
-        self.R = np.zeros((50, 50))
-        self.R[0, 0] = 1
-        self.message = np.array([1])
+        self.threshold = threshold
+
         self.t = 0
+        self.cp = set()
+
+        self.P = np.zeros((50, 50))
+        self.P[0, 0] = 1
+        self.message = np.array([1])
 
     def update(self, x):
 
         self.t += 1
-        pis = self.dist.pdf(x)  # len(pis) == self.t
+        pis = self.dist.ppd(x)  # len(pis) == self.t
 
         growth_probs = pis * self.message * (1 - self.hazard)
         cp_prob = sum(pis * self.message * self.hazard)
 
         new_joint = np.append(cp_prob, growth_probs)
+
+        if self.t + 1 > len(self.P):
+            self.expandP()
+        self.P[self.t, :self.t + 1] = new_joint
+
         evidence = np.sum(new_joint)
-
-        if self.t + 1 > len(self.R):
-            self.expandR()
-
-        self.R[self.t, :self.t + 1] = new_joint
         if evidence > 0:
-            self.R[self.t, :self.t + 1] /= evidence
+            self.P[self.t, :self.t + 1] /= evidence
 
         model.update_theta(x)
         self.message = new_joint
+
+        # Decide change point
+        max_p = self.P[self.t, :].max()
+        if max_p >= self.threshold:
+            cp = self.t - self.P[self.t, :].argmax()
+            if cp > 0 and cp not in self.cp:
+                self.cp.add(cp)
+                print(f'Change point {cp} found at t={self.t}')
         return
 
-    def expandR(self):
-        N = len(self.R) + 50
-        newR = np.zeros((N, N))
-        r, c = self.R.shape
-        newR[:r, :c] = self.R
-        self.R = newR
+    def expandP(self):
+        N = len(self.P) + 50
+        newP = np.zeros((N, N))
+        r, c = self.P.shape
+        newP[:r, :c] = self.P
+        self.P = newP
         return
 
     def plot(self, data):
@@ -53,16 +66,24 @@ class BOCD:
         ax1.set_xlim([0, T])
         ax1.margins(0)
 
-        ax2.imshow(np.rot90(self.R),
+        ax2.imshow(np.rot90(self.P),
                    aspect='auto',
-                   cmap='gray_r',d
+                   cmap='gray_r',
                    norm=LogNorm(vmin=0.0001, vmax=1))
         ax2.set_xlim([0, T])
         ax2.margins(0)
+
+        for x in self.get_cp():
+            ax1.axvline(x, c='red', ls='dotted')
+            ax2.axvline(x, c='red', ls='dotted')
+
         return ax1, ax2
 
-    def detect(self):
-        return
+    def dist_t(self, t):
+        return self.P[t, :][self.P[t, :] > 0]
+
+    def get_cp(self):
+        return sorted([x for x in self.cp])
 
 
 class Gaussian:
@@ -72,7 +93,7 @@ class Gaussian:
         self.kappa0 = self.kappa = np.array([kappa])
         self.mu0 = self.mu = np.array([mu])
 
-    def pdf(self, data):
+    def ppd(self, data):
         """
         Note: Posterior predictive distribution for gaussian is student t
         """
@@ -101,11 +122,10 @@ class Poisson:
         self.shape0 = self.shape = np.array([shape])
         self.rate0 = self.rate = np.array([rate])
 
-    def pdf(self, data):
+    def ppd(self, data):
         """
         Note: Posterior predictive distribution for poisson is negative binomial
         """
-
         return stats.nbinom.pmf(k=data, n=self.shape,
                                 p=1 / (1 + self.rate))  # rate = p/(1-p)
 
