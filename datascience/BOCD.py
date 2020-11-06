@@ -55,7 +55,7 @@ class BOCD:
 
         ax2.imshow(np.rot90(self.R),
                    aspect='auto',
-                   cmap='gray_r',
+                   cmap='gray_r',d
                    norm=LogNorm(vmin=0.0001, vmax=1))
         ax2.set_xlim([0, T])
         ax2.margins(0)
